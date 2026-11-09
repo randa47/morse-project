@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <title>Morse Code Command Center</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a, #1e1b4b);
+            color: #38bdf8;
+            text-align: center;
+            margin: 0;
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #f8fafc;
+            font-size: 28px;
+            margin-bottom: 25px;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+        }
+        button {
+            background: linear-gradient(135deg, #0284c7, #0369a1);
+            color: #ffffff;
+            border: none;
+            padding: 14px 28px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4);
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+        button:hover {
+            background: linear-gradient(135deg, #0369a1, #075985);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(2, 132, 199, 0.6);
+        }
+        .box {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            padding: 20px;
+            margin: 20px auto;
+            width: 70%;
+            max-width: 700px;
+            border-radius: 12px;
+            text-align: left;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        input {
+            padding: 12px 16px;
+            font-size: 16px;
+            width: 70%;
+            border-radius: 6px;
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            background: #0f172a;
+            color: #f8fafc;
+            outline: none;
+            transition: border 0.3s;
+        }
+        input:focus {
+            border-color: #38bdf8;
+            box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+        }
+        h2 {
+            color: #38bdf8;
+            font-size: 18px;
+            margin-top: 0;
+            text-align: center;
+            border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+            padding-bottom: 8px;
+        }
+        .output-text {
+            font-size: 20px;
+            color: #fbbf24;
+            word-break: break-all;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Morse Code Command Center</h1>
+    
+    <button id="connectBtn">Connect Arduino</button>
+
+    <div class="box">
+        <h2>Morse Output</h2>
+        <p id="morseOutput" class="output-text">Waiting for signal...</p>
+    </div>
+
+    <div class="box">
+        <h2>Translated Text</h2>
+        <p id="textOutput" class="output-text" style="color: #4ade80;">---</p>
+    </div>
+
+    <div class="box" style="text-align: center;">
+        <h2>Send Message</h2>
+        <input type="text" id="msgInput" placeholder="Type text to send...">
+        <br><br>
+        <button id="sendBtn">Send to Arduino</button>
+    </div>
+
+<script>
+    let port, writer;
+    const connectBtn = document.getElementById('connectBtn');
+    const morseOutput = document.getElementById('morseOutput');
+    const textOutput = document.getElementById('textOutput');
+    const msgInput = document.getElementById('msgInput');
+
+    const morseToChar = {
+        ".-": "A", "-...": "B", "-.-.": "C", "-..": "D", ".": "E",
+        "..-.": "F", "--.": "G", "....": "H", "..": "I", ".---": "J",
+        "-.-": "K", ".-..": "L", "--": "M", "-.": "N", "---": "O",
+        ".--.": "P", "--.-": "Q", ".-.": "R", "...": "S", "-": "T",
+        "..-": "U", "...-": "V", ".--": "W", "-..-": "X", "-.--": "Y",
+        "--..": "Z", ".----": "1", "..---": "2", "...--": "3", "....-": "4",
+        ".....": "5", "-....": "6", "--...": "7", "---..": "8", "----.": "9", "-----": "0"
+    };
+
+    connectBtn.addEventListener('click', async () => {
+        if (!("serial" in navigator)) {
+            alert("Web Serial API is not supported in this browser! Please use Google Chrome or Microsoft Edge.");
+            return;
+        }
+
+        try {
+            port = await navigator.serial.requestPort();
+            await port.open({ baudRate: 9600 });
+            connectBtn.innerText = "Connected ✓";
+            connectBtn.style.background = "linear-gradient(135deg, #16a34a, #15803d)";
+            
+            const textEncoder = new TextEncoderStream();
+            textEncoder.readable.pipeTo(port.writable);
+            writer = textEncoder.writable.getWriter();
+
+            readData();
+        } catch (err) {
+            alert("Connection Error: " + err);
+        }
+    });
+
+    async function readData() {
+        const textDecoder = new TextDecoderStream();
+        port.readable.pipeTo(textDecoder.writable);
+        const reader = textDecoder.readable.getReader();
+        let buffer = "";
+
+        try {
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                if (value) {
+                    buffer += value;
+                    let lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep incomplete chunk in buffer
+
+                    for (let line of lines) {
+                        let cleanData = line.trim();
+                        if(cleanData === "" || cleanData.startsWith("READY") || cleanData.startsWith("CHAR") || cleanData.startsWith("SPACE") || cleanData.startsWith("SENT") || cleanData.startsWith("RCV")) continue;
+                        
+                        // 1. Show Morse code first
+                        morseOutput.innerHTML += "<br>» " + cleanData;
+                        
+                        // 2. Then translate it accurately
+                        let groups = cleanData.split("  ");
+                        let translatedFullSentence = "";
+                        
+                        for (let g of groups) {
+                            let letters = g.trim().split(" ");
+                            let translatedWord = "";
+                            for (let l of letters) {
+                                if (morseToChar[l]) {
+                                    translatedWord += morseToChar[l];
+                                }
+                            }
+                            if (translatedWord !== "") {
+                                translatedFullSentence += translatedWord + " ";
+                            }
+                        }
+                        
+                        if (translatedFullSentence.trim() !== "") {
+                            textOutput.innerHTML += "<br>» " + translatedFullSentence.trim();
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    document.getElementById('sendBtn').addEventListener('click', async () => {
+        if (!writer) {
+            alert("Please connect to Arduino first!");
+            return;
+        }
+        let val = msgInput.value.trim() + "\n";
+        await writer.write(val);
+        msgInput.value = "";
+    });
+</script>
+
+</body>
+</html>
